@@ -10,6 +10,8 @@
 
     static FILE * fout;
     static int branch_cnt;
+    static int branch_if_cnt[16];
+    static int branch_out_cnt[16];
 
     void yyerror (char const *s)
     {
@@ -21,6 +23,12 @@
     /* Id Info API*/
     static void parse_type(const char * typeAddr, char ** type);
     static int parse_addr(const char * typeAddr);
+    int store_id;
+    char * store_type;
+    
+    bool print_flag;
+    bool if_flag;
+    bool for_flag;
     bool left;
 
     /* Type checking*/
@@ -76,7 +84,7 @@
 %type <s_val> Type TypeName ArrayType
 %type <s_val> Expression Expression2 Expression3 Expression4 Expression5 
 %type <s_val> Condition
-%type <s_val> UnaryExpr PrimaryExpr Operand IndexExpr ConversionExpr Literal
+%type <s_val> UnaryExpr PrimaryExpr Operand IndexExpr ConversionExpr Literal Identifier
 %type <s_val> IncDec
 %type <s_val> LOROp LANDOp CpOp AddOp MulOp UnaryOp AssignOp 
 
@@ -131,12 +139,14 @@ DeclarationStmt
     | VAR IDENTIFIER TypeName
     { 
         insert_symbol($2, $3, NULL);
-        fprintf(fout, "ldc 0\n");// initialization
         if(strcmp("int32", $3) == 0 || strcmp("bool", $3) == 0){
+            fprintf(fout, "ldc 0\n");// initialization
             fprintf(fout, "istore %d\n", lookup_addr($2));
         } else if(strcmp("float32", $3) == 0){
+            fprintf(fout, "ldc 0.000000\n");// initialization
             fprintf(fout, "fstore %d\n", lookup_addr($2));
         } else if(strcmp("string", $3) == 0){
+            fprintf(fout, "ldc \"\"\n");// initialization
             fprintf(fout, "astore %d\n", lookup_addr($2));
         }
     }
@@ -149,64 +159,74 @@ DeclarationStmt
     ;
 
 AssignmentStmt 
-    : Expression AssignOp Expression
+    : Expression AssignOp 
+    { 
+        store_type = NULL; 
+        parse_type($1, &store_type); 
+        store_id = parse_addr($1);
+        if(strcmp("ASSIGN", $2) != 0){
+            if(strcmp("int32", store_type) == 0){
+                fprintf(fout, "iload %d\n", store_id);
+            } else if(strcmp("float32", store_type) == 0){
+                fprintf(fout, "fload %d\n", store_id);
+            }
+        }
+    } 
+      Expression
     {
         left = true;
-        char * type1 = NULL;
-        char * type3 = NULL;
-        if(strcmp("bool", $1) != 0)
-            parse_type($1, &type1);
-        else 
-            type1 = strdup("bool");
-        if(strcmp("bool", $3) != 0)
-            parse_type($3, &type3);
-        else 
-            type3 = strdup("bool");
-        type_checking(type1, type3, $2);
+        char * type;
+        parse_type($4, &type);
+        printf("Assign %s %s %s\n", $1, $2, $4);
+        type_checking(store_type, type, $2);
         if(strcmp("ASSIGN", $2) == 0){
-            if(strcmp("int32", type1) == 0 || strcmp("INT_LIT", type1) == 0)
-                fprintf(fout, "istore %d\n", parse_addr($1));
-            else if(strcmp("float32", type1) == 0 || strcmp("FLOAT_LIT", type1) == 0)
-                fprintf(fout, "fstore %d\n", parse_addr($1));
+            if(strcmp("int32", store_type) == 0 || strcmp("INT_LIT", store_type) == 0)
+                fprintf(fout, "istore %d\n", store_id);
+            else if(strcmp("float32", store_type) == 0 || strcmp("FLOAT_LIT", store_type) == 0)
+                fprintf(fout, "fstore %d\n", store_id);
+            else if(strcmp("string", store_type) == 0 || strcmp("STRING_LIT", store_type) == 0)
+                fprintf(fout, "astore %d\n", store_id);
+            else if(strcmp("bool", store_type) == 0 || strcmp("BOOL_LIT", store_type) == 0)
+                fprintf(fout, "istore %d\n", store_id);
         } else if(strcmp("ADD_ASSIGN", $2) == 0){
-            if(strcmp("int32", type1) == 0 || strcmp("INT_LIT", type1) == 0){
+            if(strcmp("int32", store_type) == 0 || strcmp("INT_LIT", store_type) == 0){
                 fprintf(fout, "iadd\n");
-                fprintf(fout, "istore %d\n", parse_addr($1));
-            } else if(strcmp("float32", type1) == 0 || strcmp("FLOAT_LIT", type1) == 0){
+                fprintf(fout, "istore %d\n", store_id);
+            } else if(strcmp("float32", store_type) == 0 || strcmp("FLOAT_LIT", store_type) == 0){
                 fprintf(fout, "fadd\n");
-                fprintf(fout, "fstore %d\n", parse_addr($1));
+                fprintf(fout, "fstore %d\n", store_id);
             } 
         } else if(strcmp("SUB_ASSIGN", $2) == 0){
-            if(strcmp("int32", type1) == 0 || strcmp("INT_LIT", type1) == 0){
+            if(strcmp("int32", store_type) == 0 || strcmp("INT_LIT", store_type) == 0){
                 fprintf(fout, "isub\n");
-                fprintf(fout, "istore %d\n", parse_addr($1));
-            } else if(strcmp("float32", type1) == 0 || strcmp("FLOAT_LIT", type1) == 0){
+                fprintf(fout, "istore %d\n", store_id);
+            } else if(strcmp("float32", store_type) == 0 || strcmp("FLOAT_LIT", store_type) == 0){
                 fprintf(fout, "fsub\n");
-                fprintf(fout, "fstore %d\n", parse_addr($1));
+                fprintf(fout, "fstore %d\n", store_id);
             }
         } else if(strcmp("MUL_ASSIGN", $2) == 0){
-            if(strcmp("int32", type1) == 0 || strcmp("INT_LIT", type1) == 0){
+            if(strcmp("int32", store_type) == 0 || strcmp("INT_LIT", store_type) == 0){
                 fprintf(fout, "imul\n");
-                fprintf(fout, "istore %d\n", parse_addr($1));
-            } else if(strcmp("float32", type1) == 0 || strcmp("FLOAT_LIT", type1) == 0){
+                fprintf(fout, "istore %d\n", store_id);
+            } else if(strcmp("float32", store_type) == 0 || strcmp("FLOAT_LIT", store_type) == 0){
                 fprintf(fout, "fmul\n");
-                fprintf(fout, "fstore %d\n", parse_addr($1));
+                fprintf(fout, "fstore %d\n", store_id);
             } 
         } else if(strcmp("QUO_ASSIGN", $2) == 0){
-            if(strcmp("int32", type1) == 0 || strcmp("INT_LIT", type1) == 0){
+            if(strcmp("int32", store_type) == 0 || strcmp("INT_LIT", store_type) == 0){
                 fprintf(fout, "idiv\n");
-                fprintf(fout, "istore %d\n", parse_addr($1));
-            } else if(strcmp("float32", type1) == 0 || strcmp("FLOAT_LIT", type1) == 0){
+                fprintf(fout, "istore %d\n", store_id);
+            } else if(strcmp("float32", store_type) == 0 || strcmp("FLOAT_LIT", store_type) == 0){
                 fprintf(fout, "fdiv\n");
-                fprintf(fout, "fstore %d\n", parse_addr($1));
+                fprintf(fout, "fstore %d\n", store_id);
             }
         } else if(strcmp("REM_ASSIGN", $2) == 0){
-            if(strcmp("int32", type1) == 0 || strcmp("INT_LIT", type1) == 0){
+            if(strcmp("int32", store_type) == 0 || strcmp("INT_LIT", store_type) == 0){
                 fprintf(fout, "irem\n");
-                fprintf(fout, "istore %d\n", parse_addr($1));
-            } else if(strcmp("float32", type1) == 0 || strcmp("FLOAT_LIT", type1) == 0){
+                fprintf(fout, "istore %d\n", store_id);
+            } else if(strcmp("float32", store_type) == 0 || strcmp("FLOAT_LIT", store_type) == 0){
                 fprintf(fout, "frem\n");
-                fprintf(fout, "fstore %d\n", parse_addr($1));
+                fprintf(fout, "fstore %d\n", store_id);
             }
         } 
         printf("%s\n", $2);
@@ -225,19 +245,45 @@ AssignOp
 ExpressionStmt
     : Expression
 
-
 Block 
     : '{' { create_symbol(); } StatementList '}' { dump_symbol();}
     ;
 
 IfStmt 
-    : IF Condition Block 
-    | IF Condition Block ELSE IfStmt
-    | IF Condition Block ELSE Block
+    : IfConditionBlock 
+    {
+        fprintf(fout, "branch_out_%d_%d:\n", tb.levelNum, branch_out_cnt[tb.levelNum]); //false
+        branch_out_cnt[tb.levelNum] += 1;
+    }
+    | IfConditionBlock ELSE IfStmt
+    { 
+        fprintf(fout, "branch_out_%d_%d:\n", tb.levelNum, branch_out_cnt[tb.levelNum]); //false
+        branch_out_cnt[tb.levelNum] += 1;
+    }
+    | IfConditionBlock ELSE Block
+    {
+        fprintf(fout, "branch_out_%d_%d:\n", tb.levelNum, branch_out_cnt[tb.levelNum]); //false
+        branch_out_cnt[tb.levelNum] += 1;
+    }
+    ;
+
+IfConditionBlock 
+    : IF {if_flag = true;} Condition Block
+    {
+        if_flag = false;
+        fprintf(fout, "goto branch_out_%d_%d\n", tb.levelNum, branch_out_cnt[tb.levelNum]); //false
+        fprintf(fout, "branch_if_%d_%d:\n", tb.levelNum, branch_if_cnt[tb.levelNum]); //false
+        branch_if_cnt[tb.levelNum] += 1;
+    } 
     ;
 
 Condition 
-    : Expression { $$ = $1; condition_checking($$);}
+    : Expression 
+    { 
+        $$ = $1; 
+        condition_checking($$);
+        fprintf(fout, "ifeq branch_if_%d_%d\n", tb.levelNum, branch_if_cnt[tb.levelNum]); //false
+    }
     ;
 
 ForStmt
@@ -258,13 +304,11 @@ PostStmt
     ;
 
 PrintStmt 
-    : PRINT {left = false;} '(' Expression ')' 
+    : PRINT {print_flag = true;} '(' Expression ')' 
     {
+        print_flag = false;
         char * type;
-        if(strcmp("bool", $4) != 0)
-            parse_type($4, &type);
-        else
-            type = strdup("bool");
+        parse_type($4, &type);
         if(strcmp("bool", type) != 0 && strcmp("BOOL_LIT", type) != 0){
             fprintf(fout, "getstatic java/lang/System/out Ljava/io/PrintStream;\n");
             fprintf(fout, "swap\n");
@@ -288,8 +332,9 @@ PrintStmt
         }
         printf("PRINT %s\n", type_remove_lit($4));
     }
-    | PRINTLN {left = false;} '(' Expression ')'
+    | PRINTLN {print_flag = true;} '(' Expression ')'
     {
+        print_flag = false;
         char * type;
         if(strcmp("bool", $4) != 0)
             parse_type($4, &type);
@@ -355,17 +400,11 @@ Expression
         printf("%s\n", $2); 
         char * type1 = NULL;
         char * type3 = NULL;
-        if(strcmp("bool", $1) != 0)
-            parse_type($1, &type1);
-        else 
-            type1 = strdup("bool");
-        if(strcmp("bool", $3) != 0)
-            parse_type($3, &type3);
-        else 
-            type3 = strdup("bool");
+        parse_type($1, &type1);
+        parse_type($3, &type3);
         type_checking(type1, type3, $2);
         fprintf(fout, "ior\n");
-        $$ = "bool";
+        $$ = "bool -1";
     }
     | Expression2  
     ;
@@ -379,18 +418,12 @@ Expression2
     { 
         char * type1 = NULL;
         char * type3 = NULL;
-        if(strcmp("bool", $1) != 0)
-            parse_type($1, &type1);
-        else 
-            type1 = strdup("bool");
-        if(strcmp("bool", $3) != 0)
-            parse_type($3, &type3);
-        else 
-            type3 = strdup("bool");
+        parse_type($1, &type1);    
+        parse_type($3, &type3);
         type_checking(type1, type3, $2);
         printf("%s\n", $2); 
         fprintf(fout, "iand\n");
-        $$ = "bool";
+        $$ = "bool -1";
     }
     | Expression3
     ;
@@ -421,7 +454,7 @@ Expression3
             }
             else if((strcmp("float32", type1) == 0 || strcmp("FLOAT_LIT", type1) == 0) &&
                (strcmp("float32", type3) == 0 || strcmp("FLOAT_LIT", type3) == 0)){
-                fprintf(fout, "fsub\n");
+                fprintf(fout, "fcmpl\n");
                 fprintf(fout, "ifgt branch_%d\n", branch_cnt);
                 fprintf(fout, strcmp("LEQ", $2) == 0 ? "iconst_1\n" : "iconst_0\n");
                 fprintf(fout, "goto branch_%d\n", branch_cnt + 1);
@@ -443,7 +476,7 @@ Expression3
                 branch_cnt += 2;
             } else if((strcmp("float32", type1) == 0 || strcmp("FLOAT_LIT", type1) == 0) &&
                (strcmp("float32", type3) == 0 || strcmp("FLOAT_LIT", type3) == 0)){
-                fprintf(fout, "fsub\n");
+                fprintf(fout, "fcmpl\n");
                 fprintf(fout, "iflt branch_%d\n", branch_cnt);
                 fprintf(fout, strcmp("LSS", $2) == 0 ? "iconst_0\n" : "iconst_1\n");
                 fprintf(fout, "goto branch_%d\n", branch_cnt + 1);
@@ -465,7 +498,7 @@ Expression3
                 branch_cnt += 2;
             } else if((strcmp("float32", type1) == 0 || strcmp("FLOAT_LIT", type1) == 0) &&
                (strcmp("float32", type3) == 0 || strcmp("FLOAT_LIT", type3) == 0)){
-                fprintf(fout, "fsub\n");
+                fprintf(fout, "fcmpl\n"); 
                 fprintf(fout, "ifeq branch_%d\n", branch_cnt);
                 fprintf(fout, "iconst_0\n");
                 fprintf(fout, "goto branch_%d\n", branch_cnt + 1);
@@ -475,7 +508,7 @@ Expression3
                 branch_cnt += 2;
            } 
         }
-        $$ = "bool";
+        $$ = "bool -1";
     }
     | Expression4 
     ;
@@ -494,12 +527,10 @@ Expression4
     {
         char * type1 = NULL;
         char * type3 = NULL;
-        printf("good %s %s\n", $1, $3);
         parse_type($1, &type1);
         parse_type($3, &type3);
         type_checking(type1, type3, $2);
         printf("%s\n", $2);
-        printf("--------%s %s-----------------------\n", type1, type3);
         if(strcmp("ADD", $2) == 0){
             if((strcmp("int32", type1) == 0 || strcmp("INT_LIT", type1) == 0) &&
                (strcmp("int32", type3) == 0 || strcmp("INT_LIT", type3) == 0)){
@@ -601,21 +632,25 @@ UnaryExpr
         printf("this is : %s\n", type);
         if(strcmp("INC", $2) == 0 &&
           (strcmp("int32", type) == 0 || strcmp("INT_LIT", type) == 0)){
+            fprintf(fout, "iload %d\n", parse_addr($1));
             fprintf(fout, "ldc 1\n");
             fprintf(fout, "iadd\n");
             fprintf(fout, "istore %d\n", parse_addr($1));
         } else if(strcmp("DEC", $2) == 0 &&
           (strcmp("int32", type) == 0 || strcmp("INT_LIT", type) == 0)){
+            fprintf(fout, "iload %d\n", parse_addr($1));
             fprintf(fout, "ldc 1\n");
             fprintf(fout, "isub\n");
             fprintf(fout, "istore %d\n", parse_addr($1));
         } else if(strcmp("INC", $2) == 0 &&
           (strcmp("float32", type) == 0 || strcmp("FLOAT_LIT", type) == 0)){
+            fprintf(fout, "fload %d\n", parse_addr($1));
             fprintf(fout, "ldc 1.000000\n");
             fprintf(fout, "fadd\n");
             fprintf(fout, "fstore %d\n", parse_addr($1));
         } else if(strcmp("DEC", $2) == 0 &&
           (strcmp("float32", type) == 0 || strcmp("FLOAT_LIT", type) == 0)){
+            fprintf(fout, "fload %d\n", parse_addr($1));
             fprintf(fout, "ldc 1.000000\n");
             fprintf(fout, "fsub\n");
             fprintf(fout, "fstore %d\n", parse_addr($1));
@@ -625,8 +660,8 @@ UnaryExpr
     ;
 
 IncDec
-    : INC { $$ = "INC";}
-    | DEC { $$ = "DEC";}
+    : INC { $$ = "INC"; }
+    | DEC { $$ = "DEC"; }
     ;
 
 UnaryOp
@@ -643,18 +678,23 @@ PrimaryExpr
 
 Operand 
     : Literal
-    | IDENTIFIER 
+    | Identifier 
+    | '(' Expression ')' { $$ = $2;}
+    ;
+
+Identifier
+    : IDENTIFIER
     {
         bool is_array; 
         char * type = NULL;
-        is_array = lookup_symbol($1, &type);
         char typeAddr[20];
+        is_array = lookup_symbol($1, &type);
         sprintf(typeAddr, "%s %d", type, lookup_addr($1));
         if(typeAddr != NULL)
             $$ = typeAddr;
         else
             $$ = strdup("XXX");
-        if(left == false){
+        if(print_flag || if_flag || for_flag){
             if(!is_array){
                 if(strcmp("string", type) == 0)
                     fprintf(fout, "aload %d\n", parse_addr(typeAddr));
@@ -663,11 +703,23 @@ Operand
                 if(strcmp("float32", type) == 0)
                     fprintf(fout, "fload %d\n", parse_addr(typeAddr));
             } else {
-                fprintf(fout, "aload %d\n", lookup_addr(typeAddr));
+                fprintf(fout, "aload %d\n", parse_addr(typeAddr));
+            }
+        } else {
+            if(!left){
+                if(!is_array){
+                    if(strcmp("string", type) == 0)
+                        fprintf(fout, "aload %d\n", parse_addr(typeAddr));
+                    if(strcmp("int32", type) == 0 || strcmp("bool", type) == 0)
+                        fprintf(fout, "iload %d\n", parse_addr(typeAddr));
+                    if(strcmp("float32", type) == 0)
+                        fprintf(fout, "fload %d\n", parse_addr(typeAddr));
+                } else {
+                    fprintf(fout, "aload %d\n", parse_addr(typeAddr));
+                }
             }
         }
     }
-    | '(' Expression ')' { $$ = $2;}
     ;
 
 Literal
@@ -679,13 +731,13 @@ Literal
     }
     | FLOAT_LIT 
     {   
-        fprintf(fout, "ldc %f\n", $1);
+        fprintf(fout, "ldc %.6f\n", $1);
         $$ = "FLOAT_LIT -1";
     }
     | '"' STRING_LIT '"' 
     { 
         printf("STRING_LIT %s\n", $2); 
-        fprintf(fout, "ldc %s\n", $2);
+        fprintf(fout, "ldc \"%s\"\n", $2);
         $$ = "STRING_LIT -1";
     }
     | BOOL_LIT 
@@ -708,10 +760,7 @@ IndexExpr
     { 
         $$ = $1;
         char * type = NULL;
-        if(strcmp("bool", $1) != 0)
-            parse_type($1, &type);
-        else 
-            type = strdup("bool");
+        parse_type($1, &type);
         if(strcmp("float32", type) == 0 || strcmp("FLOAT_LIT", type) == 0 ||
            strcmp("string", type) == 0 || strcmp("STRING_LIT", type) == 0){
             printf("you put a strange type into the index of an array!!!\n");
@@ -722,10 +771,19 @@ IndexExpr
 ConversionExpr 
     : Type '(' Expression ')' 
     { 
-        $$ = $1;
-        char * type;
-        parse_type($3, &type);
-        printf("%c to %c\n", conversion_code(type), conversion_code($1));
+        char typeAddr[20];
+        char * type3;
+        parse_type($3, &type3);
+        printf("%c to %c\n", conversion_code(type3), conversion_code($1));
+        if((strcmp("int32", type3) == 0 || strcmp("INT_LIT", type3) == 0) &&
+           (strcmp("float32", $1) == 0 || strcmp("FLOAT_LIT", $1) == 0))
+            fprintf(fout, "i2f\n");
+        else if((strcmp("float32", type3) == 0 || strcmp("FLOAT_LIT", type3) == 0) &&
+           (strcmp("int32", $1) == 0 || strcmp("INT_LIT", $1) == 0))
+            fprintf(fout, "f2i\n");
+        sprintf(typeAddr, "%s %d", $1, parse_addr($3));
+        printf("convert-------- typeaddr:%s convertTo:%s \n", typeAddr, type3);
+        $$ = strdup(typeAddr);
     }
     ;
 
@@ -750,10 +808,21 @@ int main(int argc, char *argv[])
     fprintf(fout, ".method public static main([Ljava/lang/String;)V\n");
     fprintf(fout, ".limit stack 100\n");
     fprintf(fout, ".limit locals 100\n");
+    
+    int i;
+    print_flag = false;
+    if_flag = false;
+    for_flag =  false;
     left = true;
+    store_id = -1;
+    store_type = strdup("null");
+    
     initTable(&tb, 256, 16);
     yylineno = 0;
     branch_cnt = 0;
+    for( i = 0; i < 16; ++i) branch_if_cnt[i] = 0;
+    for( i = 0; i < 16; ++i) branch_out_cnt[i] = 0;
+    
     yyparse();
     dump_symbol();
 	printf("Total lines: %d\n", yylineno);

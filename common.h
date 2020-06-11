@@ -25,5 +25,4 @@ typedef struct Table{
 
     field tf[16][256];
 }table;
-
 #endif /* COMMON_H */
