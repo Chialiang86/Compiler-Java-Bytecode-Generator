@@ -9,9 +9,13 @@
     extern FILE *yyin;
 
     static FILE * fout;
+    static void del_file();
     static int branch_cnt;
     static int branch_if_cnt[16];
     static int branch_out_cnt[16];
+    static int branch_for_cnt[16];
+    static int branch_simple_for_cnt[16];
+    static int branch_exit_cnt[16];
 
     void yyerror (char const *s)
     {
@@ -25,7 +29,14 @@
     static int parse_addr(const char * typeAddr);
     int store_id;
     char * store_type;
-    
+   
+
+    const int int32_cache = 256;
+    const int bool_cache = 257;
+    const int float32_cache = 258;
+    const int string_cache = 259;
+    char * assign_type;
+    bool assign_flag;
     bool print_flag;
     bool if_flag;
     bool for_flag;
@@ -160,7 +171,7 @@ DeclarationStmt
 
 AssignmentStmt 
     : Expression AssignOp 
-    { 
+    {
         store_type = NULL; 
         parse_type($1, &store_type); 
         store_id = parse_addr($1);
@@ -170,6 +181,10 @@ AssignmentStmt
             } else if(strcmp("float32", store_type) == 0){
                 fprintf(fout, "fload %d\n", store_id);
             }
+        }
+        if(for_flag){
+            assign_flag = true;
+            assign_type = strdup(store_type);
         }
     } 
       Expression
@@ -268,9 +283,13 @@ IfStmt
     ;
 
 IfConditionBlock 
-    : IF {if_flag = true;} Condition Block
-    {
+    : IF {if_flag = true;} Condition 
+    { 
         if_flag = false;
+        fprintf(fout, "ifeq branch_if_%d_%d\n", tb.levelNum, branch_if_cnt[tb.levelNum]); //false
+    }
+     Block
+    {
         fprintf(fout, "goto branch_out_%d_%d\n", tb.levelNum, branch_out_cnt[tb.levelNum]); //false
         fprintf(fout, "branch_if_%d_%d:\n", tb.levelNum, branch_if_cnt[tb.levelNum]); //false
         branch_if_cnt[tb.levelNum] += 1;
@@ -279,20 +298,83 @@ IfConditionBlock
 
 Condition 
     : Expression 
-    { 
+    {
         $$ = $1; 
         condition_checking($$);
-        fprintf(fout, "ifeq branch_if_%d_%d\n", tb.levelNum, branch_if_cnt[tb.levelNum]); //false
     }
     ;
 
 ForStmt
-    : FOR Condition Block
-    | FOR ForClause Block
+    : For Condition 
+    {
+        for_flag = false;
+        fprintf(fout, "ifeq branch_exit_%d_%d\n", tb.levelNum, branch_exit_cnt[tb.levelNum]); //false 
+    } 
+     Block
+    {
+        fprintf(fout, "goto branch_simple_for_%d_%d\n", tb.levelNum, branch_exit_cnt[tb.levelNum]); //false 
+        fprintf(fout, "branch_exit_%d_%d:\n", tb.levelNum, branch_exit_cnt[tb.levelNum]); //false 
+        branch_for_cnt[tb.levelNum] += 1;
+        branch_exit_cnt[tb.levelNum] += 1;
+    }
+    | For ForClause Block
+    {
+        fprintf(fout, "goto branch_for_%d_%d\n", tb.levelNum, branch_exit_cnt[tb.levelNum] + 1); //false 
+        fprintf(fout, "branch_exit_%d_%d: \n", tb.levelNum, branch_exit_cnt[tb.levelNum]); //false 
+        branch_for_cnt[tb.levelNum] += 3;
+        branch_simple_for_cnt[tb.levelNum] += 3;
+        branch_exit_cnt[tb.levelNum] += 1;
+    }
+    ;
+
+For
+    : FOR
+    {
+        for_flag = true;
+        fprintf(fout, "branch_simple_for_%d_%d:\n", tb.levelNum, branch_simple_for_cnt[tb.levelNum]); //falsei
+    }
     ;
 
 ForClause
-    : InitStmt ';' Condition ';' PostStmt
+    : InitStmt
+    {
+        if(assign_flag){
+            if(strcmp("int32", assign_type) == 0)
+                fprintf(fout, "istore %d\n", int32_cache);
+            if(strcmp("float32", assign_type) == 0)
+                fprintf(fout, "fstore %d\n", float32_cache);
+            if(strcmp("bool", assign_type) == 0)
+                fprintf(fout, "istore %d\n", bool_cache);
+            if(strcmp("string", assign_type) == 0)
+                fprintf(fout, "astore %d\n", string_cache);
+        }
+        assign_flag = false;
+        fprintf(fout, "branch_for_%d_%d:\n", tb.levelNum, branch_for_cnt[tb.levelNum]); //falsei
+            
+    }
+    ';' Condition 
+    {
+        for_flag = false;
+        fprintf(fout, "ifeq branch_exit_%d_%d\n", tb.levelNum, branch_exit_cnt[tb.levelNum]); //false 
+        fprintf(fout, "goto branch_for_%d_%d\n", tb.levelNum, branch_for_cnt[tb.levelNum] + 2); //falsei
+        fprintf(fout, "branch_for_%d_%d:\n", tb.levelNum, branch_for_cnt[tb.levelNum] + 1); //falsei
+    }
+     ';' PostStmt
+    {
+        if(assign_flag){
+            if(strcmp("int32", assign_type) == 0)
+                fprintf(fout, "istore %d\n", int32_cache);
+            if(strcmp("float32", assign_type) == 0)
+                fprintf(fout, "fstore %d\n", float32_cache);
+            if(strcmp("bool", assign_type) == 0)
+                fprintf(fout, "istore %d\n", bool_cache);
+            if(strcmp("string", assign_type) == 0)
+                fprintf(fout, "astore %d\n", string_cache);
+        }
+        assign_flag = false;
+        fprintf(fout, "goto branch_for_%d_%d\n", tb.levelNum, branch_for_cnt[tb.levelNum]); //falsei
+        fprintf(fout, "branch_for_%d_%d:\n", tb.levelNum, branch_for_cnt[tb.levelNum] + 2); //falsei
+    }
     ;
 
 InitStmt
@@ -330,7 +412,7 @@ PrintStmt
             fprintf(fout, "invokevirtual java/io/PrintStream/print(Ljava/lang/String;)V\n");
             branch_cnt += 2;
         }
-        printf("PRINT %s\n", type_remove_lit($4));
+        printf("PRINT %s\n", type);
     }
     | PRINTLN {print_flag = true;} '(' Expression ')'
     {
@@ -361,7 +443,7 @@ PrintStmt
             fprintf(fout, "invokevirtual java/io/PrintStream/println(Ljava/lang/String;)V\n");
             branch_cnt += 2;
         }
-        printf("PRINTLN %s\n", type_remove_lit($4));
+        printf("PRINTLN %s\n", type);
     }
     ;
 
@@ -806,10 +888,11 @@ int main(int argc, char *argv[])
     fprintf(fout, ".class public Main\n");
     fprintf(fout, ".super java/lang/Object\n");
     fprintf(fout, ".method public static main([Ljava/lang/String;)V\n");
-    fprintf(fout, ".limit stack 100\n");
-    fprintf(fout, ".limit locals 100\n");
+    fprintf(fout, ".limit stack 1000\n");
+    fprintf(fout, ".limit locals 1000\n");
     
     int i;
+    assign_flag = false;
     print_flag = false;
     if_flag = false;
     for_flag =  false;
@@ -822,6 +905,9 @@ int main(int argc, char *argv[])
     branch_cnt = 0;
     for( i = 0; i < 16; ++i) branch_if_cnt[i] = 0;
     for( i = 0; i < 16; ++i) branch_out_cnt[i] = 0;
+    for( i = 0; i < 16; ++i) branch_for_cnt[i] = 0;
+    for( i = 0; i < 16; ++i) branch_simple_for_cnt[i] = 0;
+    for( i = 0; i < 16; ++i) branch_exit_cnt[i] = 0;
     
     yyparse();
     dump_symbol();
@@ -831,6 +917,14 @@ int main(int argc, char *argv[])
     fclose(fout);
     fclose(yyin);
     return 0;
+}
+
+static void del_file(){
+    if(remove("hw3.j") == 0){
+        printf("file remove !!\n");
+    } else {
+        printf("file remove QQ\n");
+    }
 }
 
 static void parse_type(const char * typeAddr, char ** type){
@@ -847,8 +941,10 @@ static int parse_addr(const char * typeAddr){
 }
 
 static void create_symbol() {
-    if(tb.levelNum < 16 && tb.indexNum[tb.levelNum] != 0)
+    if(tb.levelNum < 16 && tb.indexNum[tb.levelNum] != 0){
         printf("Create symbol error: init level %d index != 0\n", tb.levelNum);
+        del_file();        
+    }
     else if(tb.levelNum >= 16)
         printf("Out of level num: 16\n");
     tb.levelNum += 1;
@@ -866,6 +962,7 @@ static void insert_symbol(char * n, char * t, char * et) {
         if(strcmp(tb.tf[ln][i].name, n) == 0){
             printf("error:%d: %s redeclared in this block. previous declaration at line %d\n",
                     yylineno, n,tb.tf[ln][i].lineno);
+            del_file();        
                     return;
         }
     }
@@ -916,6 +1013,7 @@ static bool lookup_symbol(char * s, char ** type) {
     }
     type = NULL;
     printf("error:%d: undefined: %s\n", yylineno + 1, s);
+    del_file();        
     return false;
 }
 
@@ -959,6 +1057,7 @@ static char conversion_code(const char * type){
         return 'F';
     else
         printf("convertion type error : %s\n", type);
+    del_file();        
     return 'X';
 }
 
@@ -976,42 +1075,51 @@ static void type_checking(const char * type1, const char * type2, const char * o
                 (strcmp(type2, "STRING_LIT") == 0) + (strcmp(type2, "BOOL_LIT") == 0);
     if(!correct1){
         printf("error left type : %s\n", type1);
+        del_file();        
         return;
     }
     if(!correct2){
         printf("error right type : %s\n", type2);
+        del_file();        
         return;
     }
     if(is_add_mul_op(op) && strcmp(type_remove_lit(type1), type_remove_lit(type2)) != 0){
         printf("error:%d: invalid operation: %s (mismatched types %s and %s)\n",
                 yylineno, op, type_remove_lit(type1), type_remove_lit(type2));
+        del_file();        
     } else if(strcmp(op, "REM") == 0 || strcmp(op, "REM_ASSIGN") == 0){
         if(strcmp(type_remove_lit(type1), "float32") == 0 || 
             strcmp(type_remove_lit(type1), "string") == 0){
             printf("error:%d: invalid operation: (operator %s not defined on %s)\n", 
                 yylineno, op, type_remove_lit(type1));
+            del_file();        
         }
         if(strcmp(type_remove_lit(type2), "float32") == 0 || 
             strcmp(type_remove_lit(type2), "string") == 0){
             printf("error:%d: invalid operation: (operator %s not defined on %s)\n", 
                 yylineno, op, type_remove_lit(type2));
+            del_file();        
         }
     } else if(is_assign_op(op)){
         if(strcmp(type_remove_lit(type1), type1) != 0){
             printf("error:%d: cannot assign to %s\n", yylineno, type_remove_lit(type1));
+            del_file();        
             return;
         }
         if(is_assign_op(op) && strcmp(type_remove_lit(type1), type_remove_lit(type2)) != 0){
             printf("error:%d: invalid operation: %s (mismatched types %s and %s)\n",
                 yylineno, op, type_remove_lit(type1), type_remove_lit(type2));
+            del_file();        
         }
     } else if(is_logical_op(op)){
         if(strcmp(type_remove_lit(type1), "bool") != 0){
             printf("error:%d: invalid operation: (operator %s not defined on %s)\n",
                     yylineno, op, type_remove_lit(type1));
+            del_file();        
         } else if(strcmp(type_remove_lit(type2), "bool") != 0){
             printf("error:%d: invalid operation: (operator %s not defined on %s)\n",
                     yylineno, op, type_remove_lit(type2));
+            del_file();        
         }
     }
     
@@ -1054,8 +1162,11 @@ static char * type_remove_lit(const char * type){
 static void condition_checking(const char * type){
     if(strcmp(type, "XXX") == 0)
         return;
-    if(strcmp(type_remove_lit(type), "bool") != 0){
+    char * true_type;
+    parse_type(type, &true_type);
+    if(strcmp(type_remove_lit(true_type), "bool") != 0){
         printf("error:%d: non-bool (type %s) used as for condition\n",
-            yylineno + 1, type_remove_lit(type));
+            yylineno + 1, type_remove_lit(true_type));
+        del_file();        
     }
 }
