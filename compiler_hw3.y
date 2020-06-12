@@ -40,6 +40,8 @@
     bool print_flag;
     bool if_flag;
     bool for_flag;
+    bool astore_flag;
+    bool aload_flag;
     bool left;
 
     /* Type checking*/
@@ -143,8 +145,15 @@ DeclarationStmt
     }
     | VAR IDENTIFIER ArrayType '=' Expression 
     { 
+        char * type;
+        if(strcmp("int32", $3) == 0)
+            type = strdup("int");
+        else if(strcmp("float32", $3) == 0)
+            type = strdup("float");
+        else
+            type = strdup($3);
         insert_symbol($2, "array", $3);    
-        fprintf(fout, "newarray %s\n", $3);
+        fprintf(fout, "newarray %s\n", type);
         fprintf(fout, "astore %d\n", lookup_addr($2));
     }
     | VAR IDENTIFIER TypeName
@@ -163,8 +172,15 @@ DeclarationStmt
     }
     | VAR IDENTIFIER ArrayType
     { 
+        char * type;
+        if(strcmp("int32", $3) == 0)
+            type = strdup("int");
+        else if(strcmp("float32", $3) == 0)
+            type = strdup("float");
+        else
+            type = strdup($3);
         insert_symbol($2, "array", $3);
-        fprintf(fout, "newarray %s\n", $3);
+        fprintf(fout, "newarray %s\n", type);
         fprintf(fout, "astore %d\n", lookup_addr($2));
     }
     ;
@@ -196,54 +212,55 @@ AssignmentStmt
         type_checking(store_type, type, $2);
         if(strcmp("ASSIGN", $2) == 0){
             if(strcmp("int32", store_type) == 0 || strcmp("INT_LIT", store_type) == 0)
-                fprintf(fout, "istore %d\n", store_id);
+                fprintf(fout, astore_flag ? "iastore\n" : "istore %d\n", store_id);
             else if(strcmp("float32", store_type) == 0 || strcmp("FLOAT_LIT", store_type) == 0)
-                fprintf(fout, "fstore %d\n", store_id);
+                fprintf(fout, astore_flag ? "fastore\n" : "fstore %d\n", store_id);
             else if(strcmp("string", store_type) == 0 || strcmp("STRING_LIT", store_type) == 0)
-                fprintf(fout, "astore %d\n", store_id);
+                fprintf(fout, astore_flag ? "aastore\n" : "astore %d\n", store_id);
             else if(strcmp("bool", store_type) == 0 || strcmp("BOOL_LIT", store_type) == 0)
-                fprintf(fout, "istore %d\n", store_id);
+                fprintf(fout, astore_flag ? "iastore\n" : "istore %d\n", store_id);
         } else if(strcmp("ADD_ASSIGN", $2) == 0){
             if(strcmp("int32", store_type) == 0 || strcmp("INT_LIT", store_type) == 0){
                 fprintf(fout, "iadd\n");
-                fprintf(fout, "istore %d\n", store_id);
+                fprintf(fout, astore_flag ? "iastore\n" : "istore %d\n", store_id);
             } else if(strcmp("float32", store_type) == 0 || strcmp("FLOAT_LIT", store_type) == 0){
                 fprintf(fout, "fadd\n");
-                fprintf(fout, "fstore %d\n", store_id);
+                fprintf(fout, astore_flag ? "fastore\n" : "fstore %d\n", store_id);
             } 
         } else if(strcmp("SUB_ASSIGN", $2) == 0){
             if(strcmp("int32", store_type) == 0 || strcmp("INT_LIT", store_type) == 0){
                 fprintf(fout, "isub\n");
-                fprintf(fout, "istore %d\n", store_id);
+                fprintf(fout, astore_flag ? "iastore\n" : "istore %d\n", store_id);
             } else if(strcmp("float32", store_type) == 0 || strcmp("FLOAT_LIT", store_type) == 0){
                 fprintf(fout, "fsub\n");
-                fprintf(fout, "fstore %d\n", store_id);
+                fprintf(fout, astore_flag ? "fastore\n" :  "fstore %d\n", store_id);
             }
         } else if(strcmp("MUL_ASSIGN", $2) == 0){
             if(strcmp("int32", store_type) == 0 || strcmp("INT_LIT", store_type) == 0){
                 fprintf(fout, "imul\n");
-                fprintf(fout, "istore %d\n", store_id);
+                fprintf(fout, astore_flag ? "iastore\n" : "istore %d\n", store_id);
             } else if(strcmp("float32", store_type) == 0 || strcmp("FLOAT_LIT", store_type) == 0){
                 fprintf(fout, "fmul\n");
-                fprintf(fout, "fstore %d\n", store_id);
+                fprintf(fout, astore_flag ? "fastore\n" : "fstore %d\n", store_id);
             } 
         } else if(strcmp("QUO_ASSIGN", $2) == 0){
             if(strcmp("int32", store_type) == 0 || strcmp("INT_LIT", store_type) == 0){
                 fprintf(fout, "idiv\n");
-                fprintf(fout, "istore %d\n", store_id);
+                fprintf(fout, astore_flag ? "iastore\n" : "istore %d\n", store_id);
             } else if(strcmp("float32", store_type) == 0 || strcmp("FLOAT_LIT", store_type) == 0){
                 fprintf(fout, "fdiv\n");
-                fprintf(fout, "fstore %d\n", store_id);
+                fprintf(fout, astore_flag ? "fastore\n" : "fstore %d\n", store_id);
             }
         } else if(strcmp("REM_ASSIGN", $2) == 0){
             if(strcmp("int32", store_type) == 0 || strcmp("INT_LIT", store_type) == 0){
                 fprintf(fout, "irem\n");
-                fprintf(fout, "istore %d\n", store_id);
+                fprintf(fout, astore_flag ? "iastore\n" :  "istore %d\n", store_id);
             } else if(strcmp("float32", store_type) == 0 || strcmp("FLOAT_LIT", store_type) == 0){
                 fprintf(fout, "frem\n");
-                fprintf(fout, "fstore %d\n", store_id);
+                fprintf(fout, astore_flag ? "fastore\n" : "fstore %d\n", store_id);
             }
-        } 
+        }
+        astore_flag = false;
         printf("%s\n", $2);
     }
     ;
@@ -312,9 +329,9 @@ ForStmt
     } 
      Block
     {
-        fprintf(fout, "goto branch_simple_for_%d_%d\n", tb.levelNum, branch_exit_cnt[tb.levelNum]); //false 
+        fprintf(fout, "goto branch_simple_for_%d_%d\n", tb.levelNum, branch_simple_for_cnt[tb.levelNum]); //false 
         fprintf(fout, "branch_exit_%d_%d:\n", tb.levelNum, branch_exit_cnt[tb.levelNum]); //false 
-        branch_for_cnt[tb.levelNum] += 1;
+        branch_simple_for_cnt[tb.levelNum] += 1;
         branch_exit_cnt[tb.levelNum] += 1;
     }
     | For ForClause Block
@@ -567,25 +584,25 @@ Expression3
                 fprintf(fout, "branch_%d:\n", branch_cnt + 1);
                 branch_cnt += 2;
             }
-        } else if(strcmp("EQL", $2) == 0){
+        } else if(strcmp("EQL", $2) == 0 || strcmp("NEQ", $2) == 0){
             if((strcmp("int32", type1) == 0 || strcmp("INT_LIT", type1) == 0) &&
                (strcmp("int32", type3) == 0 || strcmp("INT_LIT", type3) == 0)){
                 fprintf(fout, "isub\n");
                 fprintf(fout, "ifeq branch_%d\n", branch_cnt);
-                fprintf(fout, "iconst_0\n");
+                fprintf(fout, strcmp("EQL",$2) == 0 ? "iconst_0\n" : "iconst_1\n");
                 fprintf(fout, "goto branch_%d\n", branch_cnt + 1);
                 fprintf(fout, "branch_%d:\n", branch_cnt);
-                fprintf(fout, "iconst_1\n");
+                fprintf(fout, strcmp("EQL",$2) == 0 ? "iconst_1\n" : "iconst_0\n");
                 fprintf(fout, "branch_%d:\n", branch_cnt + 1);
                 branch_cnt += 2;
             } else if((strcmp("float32", type1) == 0 || strcmp("FLOAT_LIT", type1) == 0) &&
                (strcmp("float32", type3) == 0 || strcmp("FLOAT_LIT", type3) == 0)){
                 fprintf(fout, "fcmpl\n"); 
                 fprintf(fout, "ifeq branch_%d\n", branch_cnt);
-                fprintf(fout, "iconst_0\n");
+                fprintf(fout, strcmp("EQL",$2) == 0 ? "iconst_0\n" : "iconst_1\n");
                 fprintf(fout, "goto branch_%d\n", branch_cnt + 1);
                 fprintf(fout, "branch_%d:\n", branch_cnt);
-                fprintf(fout, "iconst_1\n");
+                fprintf(fout, strcmp("EQL",$2) == 0 ? "iconst_1\n" : "iconst_0\n");
                 fprintf(fout, "branch_%d:\n", branch_cnt + 1);
                 branch_cnt += 2;
            } 
@@ -784,7 +801,7 @@ Identifier
                     fprintf(fout, "iload %d\n", parse_addr(typeAddr));
                 if(strcmp("float32", type) == 0)
                     fprintf(fout, "fload %d\n", parse_addr(typeAddr));
-            } else {
+            } else if(is_array){
                 fprintf(fout, "aload %d\n", parse_addr(typeAddr));
             }
         } else {
@@ -796,9 +813,14 @@ Identifier
                         fprintf(fout, "iload %d\n", parse_addr(typeAddr));
                     if(strcmp("float32", type) == 0)
                         fprintf(fout, "fload %d\n", parse_addr(typeAddr));
-                } else {
-                    fprintf(fout, "aload %d\n", parse_addr(typeAddr));
                 }
+            } 
+            if(is_array){
+                if(left)
+                    astore_flag = true;
+                else
+                    aload_flag = true;
+                fprintf(fout, "aload %d\n", parse_addr(typeAddr));
             }
         }
     }
@@ -843,6 +865,16 @@ IndexExpr
         $$ = $1;
         char * type = NULL;
         parse_type($1, &type);
+        if(aload_flag || print_flag){
+            if(strcmp("int32", type) == 0 || strcmp("INT_LIT", type) == 0 ||
+               strcmp("bool", type) == 0 || strcmp("BOOL_LIT", type) == 0)
+                fprintf(fout, "iaload\n");
+            else if(strcmp("float32", type) == 0 || strcmp("FLOAT_LIT", type) == 0)
+                fprintf(fout, "faload\n");
+            else
+                fprintf(fout, "aaload\n");
+            aload_flag = false;
+        }
         if(strcmp("float32", type) == 0 || strcmp("FLOAT_LIT", type) == 0 ||
            strcmp("string", type) == 0 || strcmp("STRING_LIT", type) == 0){
             printf("you put a strange type into the index of an array!!!\n");
@@ -896,6 +928,8 @@ int main(int argc, char *argv[])
     print_flag = false;
     if_flag = false;
     for_flag =  false;
+    astore_flag = false;
+    aload_flag = false;
     left = true;
     store_id = -1;
     store_type = strdup("null");
